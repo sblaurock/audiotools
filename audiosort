@@ -1,0 +1,198 @@
+#!/bin/bash
+
+#
+# audiosort [-f] source
+#
+# Moves .mp3 files into a specified folder based on their genre.
+# Version 1.1
+#
+
+# Process options.
+force=false;
+while getopts ":f" opt; do
+	case $opt in
+		f 	) 	force=true;;
+		\? 	) 	echo 'Usage: audiosort [-f] source'
+				exit 1
+	esac
+done
+shift $((OPTIND - 1))
+
+# Script definitions
+OUTPUT='/destination/folder/'
+IFS=$'\n'
+input=${1:?'Read directory not specified. Usage: audiosort [-f] source'}
+moved=0
+movedSize=0
+total=0
+totalSize=0
+
+# Check dependencies.
+if [ ! -x '/usr/local/bin/id3info' ] || [ ! -x '/usr/local/bin/id3v2' ]; then
+    echo '> Error: Dependencies not met. id3lib and id3v2 are required.'
+    exit 2
+fi
+
+# Check to see that supplied directory exists.
+if [ ! -d "$input" ]; then
+    echo '> Error: Could not read from directory.'
+    exit 3
+fi
+
+# Check if output directory exists.
+if [ ! -d $OUTPUT ]; then
+    echo '> Error: Output directory is inacessible.'
+    exit 4
+fi
+
+clear
+files="$input"*.mp3
+for file in $files
+do
+	# Verify we actually found some files.
+	if [[ "$file" == "$files" ]]; then
+		echo "> Error: No accessible files in supplied directory."
+		exit 5
+	fi
+
+	id3data=$(id3info "$file")
+	declare -A id3array
+	fileSize=$(($(wc -c < "$file")/1048576))
+	error=false
+
+	# Generate an array of ID3 tag data.
+	for f in $id3data; do
+		regex="[={3}]*[ {1}]*([0-9A-Za-z]+)[0-9A-Za-z/ \(\)]*: (.*)"
+		[[ $f =~ $regex ]]
+		if [ ${BASH_REMATCH[1]} ]; then
+			id3array[${BASH_REMATCH[1]}]=${BASH_REMATCH[2]}
+		fi
+	done
+
+	# Verify BASH version dependency (associative array support).
+	if [ ${#id3array[@]} = 1 ]; then
+		echo 'Error: Dependencies not met. BASH Shell version must be greater than 4.0.'
+		exit 6
+	fi
+
+	# Check that all required ID3 tags are present and verify audio quality.
+	if [ -z "${id3array[TCON]}" ]; then
+		echo "> Error: Track '$file' is missing required ID3 tag (Genre)."
+		error=true
+	fi
+	if [ -z "${id3array[TPE1]}" ]; then
+		echo "> Error: Track '$file' is missing required ID3 tag (Artist)."
+		error=true
+	fi
+	if [ -z "${id3array[TIT2]}" ]; then
+		echo "> Error: Track '$file' is missing required ID3 tag (Title)."
+		error=true
+	fi
+	if [ -z "${id3array[Bitrate]}" ] || [ "${id3array[Bitrate]}" != "320KBps" ]; then
+		echo "> Error: Track '$file' is not of required 320kbps quality."
+		error=true
+	fi
+
+	# Check for common errors in tag values.
+	if [[ "${id3array[TPE1]}" == *"ft. "* ]]; then
+		echo "> Error: Track '$file' has misplaced 'ft.' attribute."
+		error=true
+	fi
+	if [[ "${id3array[TIT2]}" == *"Ft. "* ]]; then
+		echo "> Error: Track '$file' has a capitalization mismatch within tag (Title)."
+		error=true
+	fi
+
+	# Check for capitalization errors in tag values.
+	IFS=' ' read -ra ADDR <<< "${id3array[TIT2]}"
+	for word in "${ADDR[@]}"; do
+		if [[ $(echo "$word" | sed 's/[^A-Za-z]//g') =~ ^[a-z]{4,20}$ ]]; then
+			echo "> Error: Track '$file' has a capitalization mismatch within tag (Title)."
+			error=true
+		fi
+	done
+	IFS=' ' read -ra ADDR <<< "${id3array[TCON]}"
+	for word in "${ADDR[@]}"; do
+		if [[ $(echo "$word" | sed 's/[^A-Za-z]//g') =~ ^[a-z]{4,20}$ ]]; then
+			echo "> Error: Track '$file' has a capitalization mismatch within tag (Genre)."
+			error=true
+		fi
+	done
+	IFS=' ' read -ra ADDR <<< "${id3array[TPE1]}"
+	for word in "${ADDR[@]}"; do
+		if [[ $(echo "$word" | sed 's/[^A-Za-z]//g') =~ ^[a-z]{4,20}$ ]]; then
+			echo "> Error: Track '$file' has a capitalization mismatch within tag (Artist)."
+			error=true
+		fi
+	done
+	if [ -n "${id3array[TALB]}" ]; then
+		IFS=' ' read -ra ADDR <<< "${id3array[TALB]}"
+		for word in "${ADDR[@]}"; do
+			if [[ $(echo "$word" | sed 's/[^A-Za-z]//g') =~ ^[a-z]{4,20}$ ]]; then
+				echo "> Error: Track '$file' has a capitalization mismatch within tag (Album)."
+				error=true
+			fi
+		done
+	fi
+
+	# Check for extra spaces in tag values.
+	if [[ "${id3array[TIT2]}" =~ [\ ]{2,4} ]]; then
+		echo "> Error: Track '$file' has extra spacing within tag (Title)."
+		error=true
+	fi
+	if [[ "${id3array[TIT2]}" =~ \ $ ]]; then
+		echo "> Error: Track '$file' has a trailing space within tag (Title)."
+		error=true
+	fi
+	if [[ "${id3array[TCON]}" =~ [\ ]{2,4} ]]; then
+		echo "> Error: Track '$file' has extra spacing within tag (Genre)."
+		error=true
+	fi
+	if [[ "${id3array[TCON]}" =~ \ $ ]]; then
+		echo "> Error: Track '$file' has a trailing space within tag (Genre)."
+		error=true
+	fi
+	if [[ "${id3array[TPE1]}" =~ [\ ]{2,4} ]]; then
+		echo "> Error: Track '$file' has extra spacing within tag (Artist)."
+		error=true
+	fi
+	if [[ "${id3array[TPE1]}" =~ \ $ ]]; then
+		echo "> Error: Track '$file' has a trailing space within tag (Artist)."
+		error=true
+	fi
+	if [ -n "${id3array[TALB]}" ]; then
+		if [[ "${id3array[TALB]}" =~ [\ ]{2,4} ]]; then
+			echo "> Error: Track '$file' has extra spacing within tag (Album)."
+			error=true
+		fi
+	fi
+
+	# Verify filename structure.
+	if [ "$file" != "$input${id3array[TPE1]} - ${id3array[TIT2]}.mp3" ]; then
+		echo "> Error: Track '$file' has a mismatched filename."
+		error=true
+	fi
+
+	# Move files to output directory based on genre.
+	if ( ! $error ) || $force ; then
+		if [ ! -d "$OUTPUT${id3array[TCON]}" ]; then
+			echo "> Error: Track '$file' has a mismatched genre (${id3array[TCON]})."
+		else
+			mv "$file" "$OUTPUT${id3array[TCON]}/"
+			if [ $? != 0 ]; then
+				echo "> Error: Track '$file' could not be moved."
+			else
+				moved=$(($moved+1))
+				movedSize=$(($movedSize+$fileSize))
+			fi
+		fi
+	fi
+
+	unset id3array
+	total=$(($total+1))
+	totalSize=$(($totalSize+$fileSize))
+done
+
+echo -e "\nTracks Requiring Attention: "$(($total-$moved))
+echo -e "Tracks Sorted: $moved - "$movedSize"MB"
+echo -e "Tracks Total: $total - "$totalSize"MB"

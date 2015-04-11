@@ -1,0 +1,94 @@
+#!/bin/bash
+
+#
+# audiolist directory
+#
+# Outputs a list of all artists and genres for audio files.
+# Version 1.0
+#
+
+# Process options.
+while getopts ":f" opt; do
+	case $opt in
+		\? 	) 	echo 'Usage: audiolist directory'
+				exit 1
+	esac
+done
+shift $((OPTIND - 1))
+
+# Script definitions
+OUTPUT='/tmp/'
+GENRES_FILE='audiolist-genres'
+ARTISTS_FILE='audiolist-artists'
+IFS=$'\n'
+input=${1:?'Read directory not specified. Usage: audiolist directory'}
+
+# Check dependencies.
+if [ ! -x '/usr/local/bin/id3info' ] || [ ! -x '/usr/local/bin/id3v2' ]; then
+    echo '> Error: Dependencies not met. id3lib and id3v2 are required.'
+    exit 2
+fi
+
+# Check to see that supplied directory exists.
+if [ ! -d "$input" ]; then
+    echo '> Error: Could not read from directory.'
+    exit 3
+fi
+
+# Check if output directory exists.
+if [ ! -d $OUTPUT ]; then
+    echo '> Error: Output directory is inacessible.'
+    exit 4
+fi
+
+declare -A genres
+declare -A artists
+
+files="$input"*.mp3
+for file in $files
+do
+	# Verify we actually found some files.
+	if [[ "$file" == "$files" ]]; then
+		echo "> Error: No accessible files in supplied directory."
+		exit 5
+	fi
+
+	id3data=$(id3info "$file")
+	declare -A id3array
+
+	# Generate an array of ID3 tag data.
+	for f in $id3data; do
+		regex="[={3}]*[ {1}]*([0-9A-Za-z]+)[0-9A-Za-z/ \(\)]*: (.*)"
+		[[ $f =~ $regex ]]
+		if [ ${BASH_REMATCH[1]} ]; then
+			id3array[${BASH_REMATCH[1]}]=${BASH_REMATCH[2]}
+		fi
+	done
+
+	# Verify BASH version dependency (associative array support).
+	if [ ${#id3array[@]} = 1 ]; then
+		echo 'Error: Dependencies not met. BASH Shell version must be greater than 4.0.'
+		exit 6
+	fi
+
+	# Gather values
+	genre=${id3array[TCON]}
+	artist=${id3array[TPE1]}
+
+	# Push values into representative associative arrays (reducing duplicates)
+	genres[$genre]=1
+	artists[$artist]=1
+
+	unset id3array
+done
+
+# Output genres
+for genre in "${!genres[@]}"
+do
+	echo $genre
+done | sort > "${OUTPUT}${GENRES_FILE}"
+
+for artist in "${!artists[@]}"
+do
+	echo $artist
+done | sort > "${OUTPUT}${ARTISTS_FILE}"

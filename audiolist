@@ -3,7 +3,7 @@
 #
 # audiolist directory
 #
-# Outputs a list of all artists and genres for audio files.
+# Outputs a list of all artists and genres for mp3 files.
 # Version 1.0
 #
 
@@ -17,6 +17,7 @@ done
 shift $((OPTIND - 1))
 
 # Script definitions
+shopt -s globstar
 OUTPUT='/tmp/'
 GENRES_FILE='audiolist-genres'
 ARTISTS_FILE='audiolist-artists'
@@ -48,10 +49,15 @@ if [[ $version < 4 ]]; then
 	exit 5
 fi
 
+# Strip quotes and brackets.
+function strip {
+	echo $1 | tr -d "'\"[]"
+}
+
 declare -A genres
 declare -A artists
 
-files="$input"*.mp3
+files="$input"**/*.mp3
 for file in $files
 do
 	# Verify we actually found some files.
@@ -73,10 +79,10 @@ do
 	done
 
 	# Gather values.
-	genre=${id3array[TCON]}
-	artist=${id3array[TPE1]}
-	remix=$(echo ${id3array[TIT2]} | sed -n 's/^.* (\(.*\) Remix)/\1/p')
-	feature=$(echo ${id3array[TIT2]} | sed -n 's/^.* (ft. \(.*\))/\1/p')
+	genre=$(strip ${id3array[TCON]})
+	artist=$(strip ${id3array[TPE1]})
+	remix=$(strip $(echo ${id3array[TIT2]} | sed -n 's/^.* (\(.*\) Remix)/\1/p'))
+	feature=$(strip $(echo ${id3array[TIT2]} | sed -n 's/^.* (ft. \(.*\))/\1/p'))
 
 	# Push values into representative associative arrays (reducing duplicates).
 	if [[ ${#genre} != 0 ]]; then

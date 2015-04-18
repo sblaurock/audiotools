@@ -1,0 +1,114 @@
+#!/bin/bash
+
+#
+# audiolist directory
+#
+# Outputs a list of all artists and genres for mp3 files.
+# Version 1.0
+#
+
+# Process options.
+while getopts ":f" opt; do
+	case $opt in
+		\? 	) 	echo 'Usage: audiolist directory'
+				exit 1
+	esac
+done
+shift $((OPTIND - 1))
+
+# Script definitions
+shopt -s globstar
+OUTPUT='/tmp/'
+GENRES_FILE='audiolist-genres'
+ARTISTS_FILE='audiolist-artists'
+IFS=$'\n'
+input=${1:?'Read directory not specified. Usage: audiolist directory'}
+
+# Check dependencies.
+if [ ! -x '/usr/local/bin/id3info' ] || [ ! -x '/usr/local/bin/id3v2' ]; then
+	echo '> Error: Dependencies not met. id3lib and id3v2 are required.'
+	exit 2
+fi
+
+# Check to see that supplied directory exists.
+if [ ! -d "$input" ]; then
+	echo '> Error: Could not read from directory.'
+	exit 3
+fi
+
+# Check if output directory exists.
+if [ ! -d $OUTPUT ]; then
+	echo '> Error: Output directory is inacessible.'
+	exit 4
+fi
+
+# Verify Bash version dependency.
+version=$(echo $BASH_VERSION | head -c 1)
+if [[ $version < 4 ]]; then
+	echo '> Error: Dependencies not met. BASH Shell version must be greater than 4.0.'
+	exit 5
+fi
+
+# Strip quotes and brackets.
+function strip {
+	echo $1 | tr -d "'\"[]"
+}
+
+declare -A genres
+declare -A artists
+
+files="$input"**/*.mp3
+for file in $files
+do
+	# Verify we actually found some files.
+	if [[ "$file" == "$files" ]]; then
+		echo "> Error: No accessible files in supplied directory."
+		exit 6
+	fi
+
+	id3data=$(id3info "$file")
+	declare -A id3array
+
+	# Generate an array of ID3 tag data.
+	for f in $id3data; do
+		regex="[={3}]*[ {1}]*([0-9A-Za-z]+)[0-9A-Za-z/ \(\)]*: (.*)"
+		[[ $f =~ $regex ]]
+		if [ ${BASH_REMATCH[1]} ]; then
+			id3array[${BASH_REMATCH[1]}]=${BASH_REMATCH[2]}
+		fi
+	done
+
+	# Gather values.
+	genre=$(strip ${id3array[TCON]})
+	artist=$(strip ${id3array[TPE1]})
+	remix=$(strip $(echo ${id3array[TIT2]} | sed -n 's/^.* (\(.*\) Remix)/\1/p'))
+	feature=$(strip $(echo ${id3array[TIT2]} | sed -n 's/^.* (ft. \(.*\))/\1/p'))
+
+	# Push values into representative associative arrays (reducing duplicates).
+	if [[ ${#genre} != 0 ]]; then
+		genres[$genre]=$((genres[$genre] + 1))
+	fi
+	if [[ ${#artist} != 0 ]]; then
+		artists[$artist]=$((artists[$artist] + 1))
+	fi
+	if [[ ${#remix} != 0 ]]; then
+		artists[$remix]=$((artists[$remix] + 1))
+	fi
+	if [[ ${#feature} != 0 ]]; then
+		artists[$feature]=$((artists[$feature] + 1))
+	fi
+
+	unset id3array
+done
+
+# Output genres.
+for genre in "${!genres[@]}"
+do
+	echo "$genre (${genres[$genre]})"
+done | sort > "${OUTPUT}${GENRES_FILE}"
+
+# Output artists.
+for artist in "${!artists[@]}"
+do
+	echo "$artist (${artists[$artist]})"
+done | sort > "${OUTPUT}${ARTISTS_FILE}"

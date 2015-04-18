@@ -1,10 +1,9 @@
 #!/bin/bash
 
 #
-# audiosort [-f] source
-#
-# Moves .mp3 files into a specified folder based on their genre.
-# Version 1.1
+# audiosort
+# - Verifies correctness of ID3 track information & moves mp3 files based on genre.
+# - Depends on Bash 4, id3info, id3v2.
 #
 
 # Process options.
@@ -12,16 +11,16 @@ force=false;
 while getopts ":f" opt; do
 	case $opt in
 		f 	) 	force=true;;
-		\? 	) 	echo 'Usage: audiosort [-f] source'
+		\? 	) 	echo 'Usage: audiosort [-f] directory'
 				exit 1
 	esac
 done
 shift $((OPTIND - 1))
 
-# Script definitions
-OUTPUT='/destination/folder/'
+# Script definitions.
+OUTPUT='/tmp/'
 IFS=$'\n'
-input=${1:?'Read directory not specified. Usage: audiosort [-f] source'}
+input=${1:?'Read directory not specified. Usage: audiosort [-f] directory'}
 moved=0
 movedSize=0
 total=0
@@ -45,14 +44,20 @@ if [ ! -d $OUTPUT ]; then
     exit 4
 fi
 
-clear
+# Verify Bash version dependency.
+version=$(echo $BASH_VERSION | head -c 1)
+if [[ $version < 4 ]]; then
+	echo '> Error: Dependencies not met. BASH Shell version must be greater than 4.0.'
+	exit 5
+fi
+
 files="$input"*.mp3
 for file in $files
 do
 	# Verify we actually found some files.
 	if [[ "$file" == "$files" ]]; then
 		echo "> Error: No accessible files in supplied directory."
-		exit 5
+		exit 6
 	fi
 
 	id3data=$(id3info "$file")
@@ -68,12 +73,6 @@ do
 			id3array[${BASH_REMATCH[1]}]=${BASH_REMATCH[2]}
 		fi
 	done
-
-	# Verify BASH version dependency (associative array support).
-	if [ ${#id3array[@]} = 1 ]; then
-		echo 'Error: Dependencies not met. BASH Shell version must be greater than 4.0.'
-		exit 6
-	fi
 
 	# Check that all required ID3 tags are present and verify audio quality.
 	if [ -z "${id3array[TCON]}" ]; then
@@ -193,6 +192,6 @@ do
 	totalSize=$(($totalSize+$fileSize))
 done
 
-echo -e "\nTracks Requiring Attention: "$(($total-$moved))
+echo -e "Tracks Requiring Attention: "$(($total-$moved))
 echo -e "Tracks Sorted: $moved - "$movedSize"MB"
 echo -e "Tracks Total: $total - "$totalSize"MB"

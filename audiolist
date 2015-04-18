@@ -1,10 +1,9 @@
 #!/bin/bash
 
 #
-# audiolist directory
-#
-# Outputs a list of all artists and genres for mp3 files.
-# Version 1.0
+# audiolist
+# - Outputs a sorted list of all artists, genres, albums or bitrates for mp3 files.
+# - Depends on Bash 4, id3info, id3v2.
 #
 
 # Process options.
@@ -110,5 +109,5 @@ done
 # Output results.
 for result in "${!results[@]}"
 do
-	echo "$result (${results[$result]})"
+	echo -e "$result (${results[$result]})"
 done | sort

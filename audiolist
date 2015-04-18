@@ -10,19 +10,25 @@
 # Process options.
 while getopts ":f" opt; do
 	case $opt in
-		\? 	) 	echo 'Usage: audiolist directory'
+		\? 	) 	echo 'Usage: audiolist directory tag'
 				exit 1
 	esac
 done
 shift $((OPTIND - 1))
 
-# Script definitions
+# Script definitions.
 shopt -s globstar
-OUTPUT='/tmp/'
-GENRES_FILE='audiolist-genres'
-ARTISTS_FILE='audiolist-artists'
 IFS=$'\n'
-input=${1:?'Read directory not specified. Usage: audiolist directory'}
+input=${1:?'Read directory not specified. Usage: audiolist directory tag'}
+tag=${2:?'Tag not specified. Usage: audiolist directory tag'}
+
+case $tag in
+	"artist"	) id3tag='TPE1' ;;
+	"genre"		) id3tag='TCON' ;;
+	"album"		) id3tag='TALB' ;;
+	"bitrate"	) id3tag='Bitrate' ;;
+	*			) id3tag='TPE1' ;;
+esac
 
 # Check dependencies.
 if [ ! -x '/usr/local/bin/id3info' ] || [ ! -x '/usr/local/bin/id3v2' ]; then
@@ -54,8 +60,7 @@ function strip {
 	echo $1 | tr -d "'\"[]"
 }
 
-declare -A genres
-declare -A artists
+declare -A results
 
 files="$input"**/*.mp3
 for file in $files
@@ -78,37 +83,32 @@ do
 		fi
 	done
 
-	# Gather values.
-	genre=$(strip ${id3array[TCON]})
-	artist=$(strip ${id3array[TPE1]})
-	remix=$(strip $(echo ${id3array[TIT2]} | sed -n 's/^.* (\(.*\) Remix)/\1/p'))
-	feature=$(strip $(echo ${id3array[TIT2]} | sed -n 's/^.* (ft. \(.*\))/\1/p'))
+	value=$(strip ${id3array[$id3tag]})
 
-	# Push values into representative associative arrays (reducing duplicates).
-	if [[ ${#genre} != 0 ]]; then
-		genres[$genre]=$((genres[$genre] + 1))
+	# Push matches into array (reducing duplicates).
+	if [[ ${#value} != 0 ]]; then
+		results[$value]=$((results[$value] + 1))
 	fi
-	if [[ ${#artist} != 0 ]]; then
-		artists[$artist]=$((artists[$artist] + 1))
-	fi
-	if [[ ${#remix} != 0 ]]; then
-		artists[$remix]=$((artists[$remix] + 1))
-	fi
-	if [[ ${#feature} != 0 ]]; then
-		artists[$feature]=$((artists[$feature] + 1))
+
+	# If sorting by artist, include remix and featured artists.
+	if [[ $id3tag == 'TPE1' ]]; then
+		remix=$(strip $(echo ${id3array[TIT2]} | sed -n 's/^.* (\(.*\) Remix)/\1/p'))
+		feature=$(strip $(echo ${id3array[TIT2]} | sed -n 's/^.* (ft. \(.*\))/\1/p'))
+
+		if [[ ${#remix} != 0 ]]; then
+			results[$remix]=$((results[$remix] + 1))
+		fi
+
+		if [[ ${#feature} != 0 ]]; then
+			results[$feature]=$((results[$feature] + 1))
+		fi
 	fi
 
 	unset id3array
 done
 
-# Output genres.
-for genre in "${!genres[@]}"
+# Output results.
+for result in "${!results[@]}"
 do
-	echo "$genre (${genres[$genre]})"
-done | sort > "${OUTPUT}${GENRES_FILE}"
-
-# Output artists.
-for artist in "${!artists[@]}"
-do
-	echo "$artist (${artists[$artist]})"
-done | sort > "${OUTPUT}${ARTISTS_FILE}"
+	echo "$result (${results[$result]})"
+done | sort
